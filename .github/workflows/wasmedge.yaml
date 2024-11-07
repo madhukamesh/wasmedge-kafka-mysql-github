@@ -1,0 +1,117 @@
+# docker-build.yml in .github/workflows/
+name: Build and Push Docker Image to GHCR
+
+# Workflow will run when a push to main branch occurs
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+  packages: write
+
+env:
+  COMPANY_NAME: ONEYES
+  COUNTRY_NAME: SWEDEN
+
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Step 1: Checkout/download the repository codes
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Fetch all history for tags
+          fetch-tags: true # Fetch all tags
+
+      - name: print variables
+        run: |
+            echo ${{ github.repository }}
+            echo ${{ github.actor }}
+            echo ${{ github.sha }}
+            echo ${{ github.ref }}
+            echo ${{ github.event_name }}
+            echo ${{ github.event }}
+            echo ${{ secrets.NAME }}
+            echo ${{ vars.GENDER }}
+            echo ${{ env.COMPANY_NAME }}
+            echo ${{ env.COUNTRY_NAME }}
+
+      # Step 3: Logs in to GHCR to upload file
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+            registry: ghcr.io
+            username: ${{ github.actor }}
+            password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Get latest Tag
+        id: get_latest_tag
+        shell: bash
+        run: |
+          latest_version=$(git describe --tags --abbrev=0)
+          if [ -z "$latest_version" ]; then
+            echo "No tags found"
+            latest_version="v1"
+            echo "latest_tag=$latest_version" >> $GITHUB_OUTPUT
+          else
+            echo "current tag version is : $latest_version" # v1
+            version_number=$(echo "$latest_version" | awk -F'v' '{print $2}') #1
+            new_version=v$(( version_number + 1 )) # v2
+            echo "latest_tag=$new_version" >> $GITHUB_OUTPUT
+            echo "latest version is : $latest_tag"
+          fi
+
+      # Step 4: Creates tags for docker image
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ghcr.io/madhukamesh/wasmedge
+          tags: |
+            ${{ github.sha }}
+            ${{ steps.get_latest_tag.outputs.latest_tag }}
+            type=ref,event=branch
+            type=ref,event=tag
+            type=raw,value=latest
+
+      # Step 5: Build and push Docker image to GHCR
+      - name: Build and Push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./etl
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+
+      - name: Push latest tag
+        shell: bash
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]"
+          git tag "${{ steps.get_latest_tag.outputs.latest_tag }}"
+          git push origin "${{ steps.get_latest_tag.outputs.latest_tag }}"
+
+      - name: checkout gitops repo
+        uses: actions/checkout@v4
+        with:
+          repository: 'madhukamesh/wasmedge-kafka-mysql-github'
+          ref: main
+          token: ${{ secrets.WASMEDGE_TOKEN }}
+          path: gitops
+
+      - name: Replace image tag with yq and push
+        shell: bash
+        run: |
+          cd gitops/k8s
+          yq e '.spec.template.spec.containers[0].image |= sub("v[0-9]+", "${{ steps.get_latest_tag.outputs.latest_tag }}")' -i deploy.yaml
+          echo "Latest image: $(yq e '.spec.template.spec.containers[0].image' deploy.yaml)"
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]"
+          git add -A
+          git commit -m "Updating the latest tag to ${{ steps.get_latest_tag.outputs.latest_tag }}"
+          git push
