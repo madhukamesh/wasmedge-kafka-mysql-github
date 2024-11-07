@@ -80,7 +80,7 @@ jobs:
             type=ref,event=tag
             type=raw,value=latest
 
-      # Step 5: Build and push Docker image to GHCR
+      # Step 5: Build and push Docker image to  GHCR
       - name: Build and Push Docker image
         uses: docker/build-push-action@v5
         with:
