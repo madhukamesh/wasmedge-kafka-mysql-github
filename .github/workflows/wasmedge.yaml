@@ -99,7 +99,7 @@ jobs:
       - name: checkout gitops repo
         uses: actions/checkout@v4
         with:
-          repository: 'madhukamesh/wasmedge-kafka-mysql-github'
+          repository: 'madhukamesh/wasmedge_gitops'
           ref: main
           token: ${{ secrets.WASMEDGE_TOKEN }}
           path: gitops
